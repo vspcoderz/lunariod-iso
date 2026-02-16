@@ -1,0 +1,47 @@
+/* Lunariod Waybar Theme — sky-200 (#BAE6FD) accent */
+
+* {
+    font-family: "JetBrainsMono Nerd Font", monospace;
+    font-size: 13px;
+    border: none;
+    border-radius: 0;
+    min-height: 0;
+}
+
+window#waybar {
+    background: rgba(15, 23, 42, 0.92);       /* slate-900 */
+    color: #e2e8f0;                            /* slate-200 */
+}
+
+#workspaces button {
+    color: #64748b;                            /* slate-500 */
+    padding: 0 6px;
+    background: transparent;
+}
+
+#workspaces button.active {
+    color: #BAE6FD;                            /* sky-200 accent */
+}
+
+#clock {
+    color: #BAE6FD;
+    font-weight: bold;
+}
+
+#pulseaudio,
+#network,
+#cpu,
+#memory {
+    padding: 0 10px;
+    color: #cbd5e1;                            /* slate-300 */
+}
+
+#tray {
+    padding: 0 6px;
+}
+
+tooltip {
+    background: #1e293b;                       /* slate-800 */
+    border: 1px solid #BAE6FD;
+    border-radius: 6px;
+}

@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# /usr/local/bin/lunariod-menu
+# Lunariod Live Environment — Main Menu
+set -euo pipefail
+
+CHOICE=$(dialog --clear --title " Welcome to Lunariod " \
+  --backtitle "Lunariod Linux — Live Environment" \
+  --menu "\nChoose an option:\n" 14 52 4 \
+  1 "Launch Hyprland Desktop" \
+  2 "Install Lunariod" \
+  3 "Open Shell" \
+  4 "Reboot" \
+  2>&1 >/dev/tty) || true
+
+case "${CHOICE:-}" in
+  1) exec Hyprland ;;
+  2) /usr/local/bin/lunariod-install ;;
+  3) clear && exec bash ;;
+  4) systemctl reboot ;;
+  *) clear && exec bash ;;
+esac

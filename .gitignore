@@ -1,0 +1,9 @@
+# Lunariod ISO — .gitignore
+work/
+out/
+*.iso
+*.iso.sig
+*.iso.asc
+*.sha256
+SHA256SUMS*
+archiso-upstream/

@@ -1,0 +1,8 @@
+NAME="Lunariod"
+PRETTY_NAME="Lunariod Linux"
+ID=lunariod
+ID_LIKE=arch
+BUILD_ID=rolling
+HOME_URL="https://github.com/lunariod/lunariod-iso"
+DOCUMENTATION_URL="https://github.com/lunariod/lunariod-iso/wiki"
+LOGO=lunariod

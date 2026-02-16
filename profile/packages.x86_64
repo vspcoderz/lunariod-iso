@@ -1,0 +1,117 @@
+# ============================================================================
+# Lunariod — packages.x86_64
+# Curated package set for Intel iGPU / Hyprland / Gaming / Coding
+# ============================================================================
+
+# === Base ===
+base
+linux
+linux-firmware
+intel-ucode
+sudo
+mkinitcpio
+mkinitcpio-archiso
+
+# === Bootloader ===
+grub
+syslinux
+efibootmgr
+edk2-shell
+
+# === Intel Graphics + Vulkan (+ 32-bit for Steam) ===
+mesa
+lib32-mesa
+vulkan-intel
+lib32-vulkan-intel
+vulkan-icd-loader
+lib32-vulkan-icd-loader
+
+# === Audio (PipeWire) ===
+pipewire
+pipewire-alsa
+pipewire-pulse
+pipewire-jack
+wireplumber
+alsa-utils
+sof-firmware
+
+# === Networking ===
+networkmanager
+iwd
+openssh
+
+# === Hyprland / Wayland ===
+hyprland
+xdg-desktop-portal-hyprland
+xdg-desktop-portal
+waybar
+wofi
+mako
+hyprpaper
+foot
+foot-terminfo
+polkit-gnome
+grim
+slurp
+wl-clipboard
+xdg-utils
+
+# === Gaming ===
+steam
+gamescope
+gamemode
+lib32-gamemode
+mangohud
+lib32-mangohud
+
+# === Coding + Browser ===
+base-devel
+git
+python
+nodejs
+npm
+firefox
+
+# === Flatpak ===
+flatpak
+
+# === VirtualBox Guest ===
+virtualbox-guest-utils
+
+# === Installer / Live Utilities ===
+dialog
+archinstall
+arch-install-scripts
+dosfstools
+e2fsprogs
+btrfs-progs
+parted
+gptfdisk
+cryptsetup
+
+# === Fonts ===
+ttf-jetbrains-mono-nerd
+noto-fonts
+terminus-font
+
+# === Icons ===
+papirus-icon-theme
+
+# === Shell + Utilities ===
+nano
+vim
+less
+tmux
+reflector
+rsync
+man-db
+man-pages
+diffutils
+usbutils
+pv
+
+# === Filesystem Tools ===
+ntfs-3g
+exfatprogs
+squashfs-tools
+mtools

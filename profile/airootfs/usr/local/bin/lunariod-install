@@ -1,0 +1,328 @@
+#!/usr/bin/env bash
+# /usr/local/bin/lunariod-install
+# Lunariod TUI Installer — dialog → archinstall
+# Production-grade: set -euo pipefail, prerequisites check, error handling, logging
+set -euo pipefail
+
+###############################################################################
+# Constants
+###############################################################################
+LOGFILE="/tmp/lunariod-install.log"
+CONFIG="/tmp/lunariod-config.json"
+CREDS="/tmp/lunariod-creds.json"
+DIALOG_TITLE=" Lunariod Installer "
+DIALOG_BACKTITLE="Lunariod Linux — Installation"
+MOUNTPOINT="/mnt"
+
+exec > >(tee -a "$LOGFILE") 2>&1
+echo "=== Lunariod installer started at $(date -Iseconds) ==="
+
+###############################################################################
+# Helpers
+###############################################################################
+die() {
+    echo "FATAL: $1" >> "$LOGFILE"
+    dialog --title "Error" --backtitle "$DIALOG_BACKTITLE" --msgbox "$1" 8 60
+    exit 1
+}
+
+info_box() {
+    dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BACKTITLE" \
+        --infobox "$1" 5 60
+}
+
+check_prereqs() {
+    local missing=()
+    for cmd in dialog archinstall lsblk timedatectl arch-chroot; do
+        command -v "$cmd" &>/dev/null || missing+=("$cmd")
+    done
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        die "Missing required commands: ${missing[*]}"
+    fi
+    [[ $(id -u) -eq 0 ]] || die "Installer must be run as root."
+    if ! ping -c1 -W3 archlinux.org &>/dev/null; then
+        die "No network connectivity.\nConnect first with: nmtui  or  nmcli device wifi connect SSID password PASS"
+    fi
+}
+
+###############################################################################
+# Input Collection
+###############################################################################
+get_disk() {
+    local disks
+    disks=$(lsblk -dpno NAME,SIZE,MODEL | grep -vE 'loop|sr|ram')
+    local items=()
+    while IFS= read -r line; do
+        local dev size rest
+        dev=$(echo "$line" | awk '{print $1}')
+        size=$(echo "$line" | awk '{print $2}')
+        rest=$(echo "$line" | awk '{$1=$2=""; print}' | xargs)
+        items+=("$dev" "${size} ${rest}")
+    done <<< "$disks"
+    [[ ${#items[@]} -gt 0 ]] || die "No suitable disks found."
+    DISK=$(dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BACKTITLE" \
+        --menu "\nSelect installation disk:\n" 15 65 6 \
+        "${items[@]}" 2>&1 >/dev/tty) || exit 1
+}
+
+get_hostname() {
+    INSTALL_HOSTNAME=$(dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BACKTITLE" \
+        --inputbox "\nHostname:" 9 45 "lunariod" 2>&1 >/dev/tty) || exit 1
+    [[ -n "$INSTALL_HOSTNAME" ]] || INSTALL_HOSTNAME="lunariod"
+}
+
+get_username() {
+    USERNAME=$(dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BACKTITLE" \
+        --inputbox "\nUsername (will be in wheel/sudo group):" 9 55 "" \
+        2>&1 >/dev/tty) || exit 1
+    [[ -n "$USERNAME" ]] || die "Username cannot be empty."
+    # Validate: lowercase, alphanumeric + dash/underscore, starts with letter
+    if [[ ! "$USERNAME" =~ ^[a-z][a-z0-9_-]*$ ]]; then
+        die "Invalid username. Use lowercase alphanumeric, start with a letter."
+    fi
+}
+
+get_password() {
+    local p1 p2
+    p1=$(dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BACKTITLE" \
+        --insecure --passwordbox "\nPassword:" 9 45 2>&1 >/dev/tty) || exit 1
+    p2=$(dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BACKTITLE" \
+        --insecure --passwordbox "\nConfirm password:" 9 45 2>&1 >/dev/tty) || exit 1
+    [[ "$p1" == "$p2" ]] || die "Passwords do not match."
+    [[ -n "$p1" ]] || die "Password cannot be empty."
+    PASSWORD="$p1"
+}
+
+get_timezone() {
+    TIMEZONE=$(dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BACKTITLE" \
+        --inputbox "\nTimezone (e.g. America/New_York, Europe/London, Asia/Kolkata):" \
+        9 65 "UTC" 2>&1 >/dev/tty) || exit 1
+    [[ -n "$TIMEZONE" ]] || TIMEZONE="UTC"
+    # Basic validation
+    if [[ ! -f "/usr/share/zoneinfo/${TIMEZONE}" ]]; then
+        die "Invalid timezone: $TIMEZONE"
+    fi
+}
+
+get_filesystem() {
+    FILESYSTEM=$(dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BACKTITLE" \
+        --menu "\nFilesystem for root partition:" 11 45 2 \
+        "ext4" "Stable, recommended" \
+        "btrfs" "CoW, snapshots support" \
+        2>&1 >/dev/tty) || exit 1
+}
+
+###############################################################################
+# Config Generation
+###############################################################################
+generate_config() {
+    cat > "$CONFIG" <<JSONEOF
+{
+    "config_version": "2.6.4",
+    "additional_repositories": ["multilib"],
+    "bootloader": "Systemd-boot",
+    "hostname": "${INSTALL_HOSTNAME}",
+    "locale_config": {
+        "kb_layout": "us",
+        "sys_enc": "UTF-8",
+        "sys_lang": "en_US"
+    },
+    "mirror_config": {
+        "mirror_regions": {
+            "Worldwide": []
+        }
+    },
+    "disk_config": {
+        "config_type": "default_layout",
+        "device_modifications": [
+            {
+                "device": "${DISK}",
+                "wipe": true,
+                "partitions": [],
+                "filesystem": {
+                    "device": "${DISK}",
+                    "fs_type": "${FILESYSTEM}"
+                }
+            }
+        ]
+    },
+    "network_config": {
+        "type": "nm"
+    },
+    "packages": [
+        "mesa", "lib32-mesa",
+        "vulkan-intel", "lib32-vulkan-intel",
+        "vulkan-icd-loader", "lib32-vulkan-icd-loader",
+        "pipewire", "pipewire-alsa", "pipewire-pulse", "pipewire-jack",
+        "wireplumber",
+        "hyprland", "xdg-desktop-portal-hyprland", "xdg-desktop-portal",
+        "waybar", "wofi", "mako", "hyprpaper", "foot",
+        "polkit-gnome", "grim", "slurp", "wl-clipboard",
+        "steam", "gamescope", "gamemode", "lib32-gamemode",
+        "mangohud", "lib32-mangohud",
+        "base-devel", "git", "python", "nodejs", "npm", "firefox",
+        "flatpak",
+        "virtualbox-guest-utils",
+        "networkmanager", "iwd",
+        "ttf-jetbrains-mono-nerd", "noto-fonts", "papirus-icon-theme",
+        "nano", "vim"
+    ],
+    "profile_config": {
+        "profile": {
+            "main": "Minimal"
+        }
+    },
+    "timezone": "${TIMEZONE}"
+}
+JSONEOF
+
+    cat > "$CREDS" <<JSONEOF
+{
+    "!root-password": null,
+    "!users": [
+        {
+            "username": "${USERNAME}",
+            "!password": "${PASSWORD}",
+            "sudo": true
+        }
+    ]
+}
+JSONEOF
+
+    chmod 600 "$CONFIG" "$CREDS"
+    echo "Config written to $CONFIG" >> "$LOGFILE"
+    echo "Creds written to $CREDS" >> "$LOGFILE"
+}
+
+###############################################################################
+# Post-Install (chroot into installed system)
+###############################################################################
+post_install() {
+    info_box "Running post-install setup (Flatpak, apps, configs)..."
+
+    echo "--- Post-install phase started ---" >> "$LOGFILE"
+
+    # 1. Enable essential services
+    arch-chroot "$MOUNTPOINT" systemctl enable NetworkManager.service \
+        >> "$LOGFILE" 2>&1 || echo "WARN: Failed to enable NetworkManager" >> "$LOGFILE"
+
+    arch-chroot "$MOUNTPOINT" systemctl enable vboxservice.service \
+        >> "$LOGFILE" 2>&1 || echo "WARN: Failed to enable vboxservice (ok if not VBox)" >> "$LOGFILE"
+
+    # 2. Ensure multilib is enabled in installed system
+    sed -i '/^#\[multilib\]/,/^#Include/ s/^#//' \
+        "$MOUNTPOINT/etc/pacman.conf" 2>/dev/null || true
+
+    # 3. Setup Flatpak + Flathub remote
+    # Source: https://docs.flatpak.org/en/latest/using-flatpak.html
+    info_box "Adding Flathub remote..."
+    arch-chroot "$MOUNTPOINT" flatpak remote-add --if-not-exists \
+        flathub https://dl.flathub.org/repo/flathub.flatpakrepo \
+        >> "$LOGFILE" 2>&1 || echo "WARN: Flathub remote add failed" >> "$LOGFILE"
+
+    # 4. Install VS Code via Flatpak
+    # Source: https://flathub.org/apps/com.visualstudio.code
+    info_box "Installing Visual Studio Code (Flatpak)..."
+    arch-chroot "$MOUNTPOINT" flatpak install -y --noninteractive \
+        flathub com.visualstudio.code \
+        >> "$LOGFILE" 2>&1 || echo "WARN: VS Code Flatpak install failed" >> "$LOGFILE"
+
+    # 5. Install Prism Launcher via Flatpak
+    # Source: https://flathub.org/apps/org.prismlauncher.PrismLauncher
+    info_box "Installing Prism Launcher (Flatpak)..."
+    arch-chroot "$MOUNTPOINT" flatpak install -y --noninteractive \
+        flathub org.prismlauncher.PrismLauncher \
+        >> "$LOGFILE" 2>&1 || echo "WARN: Prism Launcher Flatpak install failed" >> "$LOGFILE"
+
+    # 6. Deploy Lunariod desktop configs to installed user's home
+    local user_home="$MOUNTPOINT/home/${USERNAME}"
+    if [[ -d "$user_home" ]]; then
+        info_box "Deploying Lunariod desktop configs..."
+        mkdir -p "$user_home/.config"
+        cp -r /etc/skel/.config/hypr "$user_home/.config/" 2>/dev/null || true
+        cp -r /etc/skel/.config/waybar "$user_home/.config/" 2>/dev/null || true
+        cp -r /etc/skel/.config/wofi "$user_home/.config/" 2>/dev/null || true
+        # Fix ownership
+        arch-chroot "$MOUNTPOINT" chown -R "${USERNAME}:${USERNAME}" \
+            "/home/${USERNAME}/.config" >> "$LOGFILE" 2>&1
+    else
+        echo "WARN: User home $user_home not found, skipping config deploy" >> "$LOGFILE"
+    fi
+
+    # 7. Deploy os-release branding to installed system
+    if [[ -f /etc/os-release ]]; then
+        cp /etc/os-release "$MOUNTPOINT/etc/os-release" 2>/dev/null || true
+    fi
+
+    # 8. Increase vm.max_map_count for gaming compatibility
+    # Source: https://wiki.archlinux.org/title/Gaming#Increase_vm.max_map_count
+    echo "vm.max_map_count=2147483642" > \
+        "$MOUNTPOINT/etc/sysctl.d/80-gamecompatibility.conf"
+
+    # 9. Ensure wheel group has sudo access
+    sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' \
+        "$MOUNTPOINT/etc/sudoers" 2>/dev/null || true
+
+    echo "--- Post-install phase complete ---" >> "$LOGFILE"
+}
+
+###############################################################################
+# Main
+###############################################################################
+main() {
+    check_prereqs
+
+    dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BACKTITLE" --yesno \
+        "\n  Welcome to Lunariod!\n\n  This will install Lunariod Linux on your system.\n\n  Continue?" \
+        11 55 || exit 0
+
+    get_disk
+    get_hostname
+    get_username
+    get_password
+    get_timezone
+    get_filesystem
+
+    # Confirmation summary
+    dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BACKTITLE" --yesno \
+        "\nInstall Lunariod with these settings?\n\n\
+  Disk:       $DISK\n\
+  Hostname:   $INSTALL_HOSTNAME\n\
+  Username:   $USERNAME\n\
+  Timezone:   $TIMEZONE\n\
+  Filesystem: $FILESYSTEM\n\n\
+  ⚠ WARNING: $DISK will be COMPLETELY ERASED!\n" 17 60 || exit 0
+
+    generate_config
+
+    # Run archinstall
+    # Source: https://wiki.archlinux.org/title/Archinstall
+    info_box "Running archinstall... This may take 10-30 minutes.\nSee $LOGFILE for details."
+
+    echo "=== Running archinstall ===" >> "$LOGFILE"
+    if archinstall --config "$CONFIG" --creds "$CREDS" --silent \
+        >> "$LOGFILE" 2>&1; then
+        echo "archinstall completed successfully" >> "$LOGFILE"
+    else
+        die "archinstall failed!\n\nCheck log: $LOGFILE"
+    fi
+
+    # Post-install phase
+    post_install
+
+    # Cleanup sensitive files
+    rm -f "$CONFIG" "$CREDS"
+
+    dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BACKTITLE" --msgbox \
+        "\n  Installation complete!\n\n\
+  ✓ Steam (pacman)\n\
+  ✓ VS Code (Flatpak)\n\
+  ✓ Prism Launcher (Flatpak)\n\
+  ✓ Hyprland desktop configured\n\n\
+  Log: $LOGFILE\n\n\
+  Remove the installation media and reboot." 15 60
+
+    echo "=== Installer finished at $(date -Iseconds) ===" >> "$LOGFILE"
+}
+
+main "$@"
