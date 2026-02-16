@@ -1,0 +1,6 @@
+# Force LF line endings for all shell scripts (critical for Linux)
+* text=auto
+*.sh text eol=lf
+profile/airootfs/usr/local/bin/* text eol=lf
+profile/airootfs/root/.bash_profile text eol=lf
+*.conf text eol=lf

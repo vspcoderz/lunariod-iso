@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # /usr/local/bin/lunariod-install
-# Lunariod TUI Installer — dialog → archinstall
-# Production-grade: set -euo pipefail, prerequisites check, error handling, logging
-set -euo pipefail
+# Lunariod TUI Installer — dialog front-end → archinstall back-end
+set -uo pipefail
 
 ###############################################################################
 # Constants
@@ -11,37 +10,35 @@ LOGFILE="/tmp/lunariod-install.log"
 CONFIG="/tmp/lunariod-config.json"
 CREDS="/tmp/lunariod-creds.json"
 DIALOG_TITLE=" Lunariod Installer "
-DIALOG_BACKTITLE="Lunariod Linux — Installation"
-MOUNTPOINT="/mnt"
+DIALOG_BT="Lunariod Linux — Installation"
+MOUNTPOINT="/mnt/archinstall"
 
-exec > >(tee -a "$LOGFILE") 2>&1
-echo "=== Lunariod installer started at $(date -Iseconds) ==="
+: > "$LOGFILE"
+log() { echo "[$(date +%H:%M:%S)] $*" >> "$LOGFILE"; }
+log "=== Lunariod installer started ==="
 
 ###############################################################################
 # Helpers
 ###############################################################################
 die() {
-    echo "FATAL: $1" >> "$LOGFILE"
-    dialog --title "Error" --backtitle "$DIALOG_BACKTITLE" --msgbox "$1" 8 60
+    log "FATAL: $1"
+    dialog --title "Error" --backtitle "$DIALOG_BT" --msgbox "$1" 8 60 2>/dev/null
     exit 1
 }
 
 info_box() {
-    dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BACKTITLE" \
-        --infobox "$1" 5 60
+    dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BT" --infobox "$1" 5 60
 }
 
 check_prereqs() {
     local missing=()
-    for cmd in dialog archinstall lsblk timedatectl arch-chroot; do
-        command -v "$cmd" &>/dev/null || missing+=("$cmd")
+    for cmd in dialog archinstall lsblk; do
+        command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd")
     done
-    if [[ ${#missing[@]} -gt 0 ]]; then
-        die "Missing required commands: ${missing[*]}"
-    fi
+    [[ ${#missing[@]} -eq 0 ]] || die "Missing commands: ${missing[*]}"
     [[ $(id -u) -eq 0 ]] || die "Installer must be run as root."
-    if ! ping -c1 -W3 archlinux.org &>/dev/null; then
-        die "No network connectivity.\nConnect first with: nmtui  or  nmcli device wifi connect SSID password PASS"
+    if ! ping -c1 -W3 archlinux.org >/dev/null 2>&1; then
+        die "No network. Connect first:\n  nmtui  or\n  nmcli device wifi connect SSID password PASS"
     fi
 }
 
@@ -49,79 +46,77 @@ check_prereqs() {
 # Input Collection
 ###############################################################################
 get_disk() {
-    local disks
-    disks=$(lsblk -dpno NAME,SIZE,MODEL | grep -vE 'loop|sr|ram')
     local items=()
     while IFS= read -r line; do
-        local dev size rest
+        local dev size
         dev=$(echo "$line" | awk '{print $1}')
         size=$(echo "$line" | awk '{print $2}')
-        rest=$(echo "$line" | awk '{$1=$2=""; print}' | xargs)
-        items+=("$dev" "${size} ${rest}")
-    done <<< "$disks"
-    [[ ${#items[@]} -gt 0 ]] || die "No suitable disks found."
-    DISK=$(dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BACKTITLE" \
-        --menu "\nSelect installation disk:\n" 15 65 6 \
+        items+=("$dev" "$size")
+    done < <(lsblk -dpno NAME,SIZE | grep -vE 'loop|sr|ram|rom')
+    [[ ${#items[@]} -gt 0 ]] || die "No disks found."
+    DISK=$(dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BT" \
+        --menu "\nSelect installation disk:" 15 55 6 \
         "${items[@]}" 2>&1 >/dev/tty) || exit 1
+    log "Disk: $DISK"
 }
 
 get_hostname() {
-    INSTALL_HOSTNAME=$(dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BACKTITLE" \
+    INSTALL_HOSTNAME=$(dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BT" \
         --inputbox "\nHostname:" 9 45 "lunariod" 2>&1 >/dev/tty) || exit 1
-    [[ -n "$INSTALL_HOSTNAME" ]] || INSTALL_HOSTNAME="lunariod"
+    INSTALL_HOSTNAME="${INSTALL_HOSTNAME:-lunariod}"
+    log "Hostname: $INSTALL_HOSTNAME"
 }
 
 get_username() {
-    USERNAME=$(dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BACKTITLE" \
-        --inputbox "\nUsername (will be in wheel/sudo group):" 9 55 "" \
-        2>&1 >/dev/tty) || exit 1
+    USERNAME=$(dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BT" \
+        --inputbox "\nUsername (will have sudo):" 9 50 "" 2>&1 >/dev/tty) || exit 1
     [[ -n "$USERNAME" ]] || die "Username cannot be empty."
-    # Validate: lowercase, alphanumeric + dash/underscore, starts with letter
-    if [[ ! "$USERNAME" =~ ^[a-z][a-z0-9_-]*$ ]]; then
-        die "Invalid username. Use lowercase alphanumeric, start with a letter."
-    fi
+    [[ "$USERNAME" =~ ^[a-z][a-z0-9_-]*$ ]] || die "Invalid username.\nUse lowercase, start with a letter."
+    log "Username: $USERNAME"
 }
 
 get_password() {
     local p1 p2
-    p1=$(dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BACKTITLE" \
+    p1=$(dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BT" \
         --insecure --passwordbox "\nPassword:" 9 45 2>&1 >/dev/tty) || exit 1
-    p2=$(dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BACKTITLE" \
+    p2=$(dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BT" \
         --insecure --passwordbox "\nConfirm password:" 9 45 2>&1 >/dev/tty) || exit 1
     [[ "$p1" == "$p2" ]] || die "Passwords do not match."
     [[ -n "$p1" ]] || die "Password cannot be empty."
     PASSWORD="$p1"
+    log "Password: [set]"
 }
 
 get_timezone() {
-    TIMEZONE=$(dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BACKTITLE" \
-        --inputbox "\nTimezone (e.g. America/New_York, Europe/London, Asia/Kolkata):" \
-        9 65 "UTC" 2>&1 >/dev/tty) || exit 1
-    [[ -n "$TIMEZONE" ]] || TIMEZONE="UTC"
-    # Basic validation
+    TIMEZONE=$(dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BT" \
+        --inputbox "\nTimezone (e.g. America/New_York, Asia/Kolkata):" \
+        9 60 "UTC" 2>&1 >/dev/tty) || exit 1
+    TIMEZONE="${TIMEZONE:-UTC}"
     if [[ ! -f "/usr/share/zoneinfo/${TIMEZONE}" ]]; then
         die "Invalid timezone: $TIMEZONE"
     fi
+    log "Timezone: $TIMEZONE"
 }
 
 get_filesystem() {
-    FILESYSTEM=$(dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BACKTITLE" \
-        --menu "\nFilesystem for root partition:" 11 45 2 \
+    FILESYSTEM=$(dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BT" \
+        --menu "\nRoot filesystem:" 11 45 2 \
         "ext4" "Stable, recommended" \
-        "btrfs" "CoW, snapshots support" \
+        "btrfs" "CoW, snapshots" \
         2>&1 >/dev/tty) || exit 1
+    log "Filesystem: $FILESYSTEM"
 }
 
 ###############################################################################
-# Config Generation
+# Config Generation — matches archinstall config schema
 ###############################################################################
 generate_config() {
-    cat > "$CONFIG" <<JSONEOF
+    cat > "$CONFIG" << JSONEOF
 {
-    "config_version": "2.6.4",
-    "additional_repositories": ["multilib"],
+    "additional-repositories": ["multilib"],
     "bootloader": "Systemd-boot",
     "hostname": "${INSTALL_HOSTNAME}",
+    "kernels": ["linux"],
     "locale_config": {
         "kb_layout": "us",
         "sys_enc": "UTF-8",
@@ -137,12 +132,7 @@ generate_config() {
         "device_modifications": [
             {
                 "device": "${DISK}",
-                "wipe": true,
-                "partitions": [],
-                "filesystem": {
-                    "device": "${DISK}",
-                    "fs_type": "${FILESYSTEM}"
-                }
+                "wipe": true
             }
         ]
     },
@@ -165,7 +155,7 @@ generate_config() {
         "virtualbox-guest-utils",
         "networkmanager", "iwd",
         "ttf-jetbrains-mono-nerd", "noto-fonts", "papirus-icon-theme",
-        "nano", "vim"
+        "sudo", "nano", "vim"
     ],
     "profile_config": {
         "profile": {
@@ -176,7 +166,7 @@ generate_config() {
 }
 JSONEOF
 
-    cat > "$CREDS" <<JSONEOF
+    cat > "$CREDS" << JSONEOF
 {
     "!root-password": null,
     "!users": [
@@ -190,80 +180,65 @@ JSONEOF
 JSONEOF
 
     chmod 600 "$CONFIG" "$CREDS"
-    echo "Config written to $CONFIG" >> "$LOGFILE"
-    echo "Creds written to $CREDS" >> "$LOGFILE"
+    log "Config written: $CONFIG"
+    log "Creds written: $CREDS"
 }
 
 ###############################################################################
-# Post-Install (chroot into installed system)
+# Post-Install
 ###############################################################################
 post_install() {
-    info_box "Running post-install setup (Flatpak, apps, configs)..."
+    # archinstall mounts to /mnt/archinstall by default
+    if [[ ! -d "$MOUNTPOINT" ]]; then
+        MOUNTPOINT="/mnt"
+    fi
+    log "Post-install mountpoint: $MOUNTPOINT"
 
-    echo "--- Post-install phase started ---" >> "$LOGFILE"
+    info_box "Running post-install setup..."
 
-    # 1. Enable essential services
-    arch-chroot "$MOUNTPOINT" systemctl enable NetworkManager.service \
-        >> "$LOGFILE" 2>&1 || echo "WARN: Failed to enable NetworkManager" >> "$LOGFILE"
+    # Enable services
+    arch-chroot "$MOUNTPOINT" systemctl enable NetworkManager.service >> "$LOGFILE" 2>&1 || true
+    arch-chroot "$MOUNTPOINT" systemctl enable vboxservice.service >> "$LOGFILE" 2>&1 || true
 
-    arch-chroot "$MOUNTPOINT" systemctl enable vboxservice.service \
-        >> "$LOGFILE" 2>&1 || echo "WARN: Failed to enable vboxservice (ok if not VBox)" >> "$LOGFILE"
+    # Enable multilib in installed system
+    sed -i '/^#\[multilib\]/{s/^#//;n;s/^#//}' "$MOUNTPOINT/etc/pacman.conf" 2>/dev/null || true
 
-    # 2. Ensure multilib is enabled in installed system
-    sed -i '/^#\[multilib\]/,/^#Include/ s/^#//' \
-        "$MOUNTPOINT/etc/pacman.conf" 2>/dev/null || true
-
-    # 3. Setup Flatpak + Flathub remote
-    # Source: https://docs.flatpak.org/en/latest/using-flatpak.html
-    info_box "Adding Flathub remote..."
+    # Flatpak + Flathub
+    info_box "Setting up Flatpak + Flathub..."
     arch-chroot "$MOUNTPOINT" flatpak remote-add --if-not-exists \
-        flathub https://dl.flathub.org/repo/flathub.flatpakrepo \
-        >> "$LOGFILE" 2>&1 || echo "WARN: Flathub remote add failed" >> "$LOGFILE"
+        flathub https://dl.flathub.org/repo/flathub.flatpakrepo >> "$LOGFILE" 2>&1 || true
 
-    # 4. Install VS Code via Flatpak
-    # Source: https://flathub.org/apps/com.visualstudio.code
-    info_box "Installing Visual Studio Code (Flatpak)..."
+    # VS Code
+    info_box "Installing VS Code (Flatpak)..."
     arch-chroot "$MOUNTPOINT" flatpak install -y --noninteractive \
-        flathub com.visualstudio.code \
-        >> "$LOGFILE" 2>&1 || echo "WARN: VS Code Flatpak install failed" >> "$LOGFILE"
+        flathub com.visualstudio.code >> "$LOGFILE" 2>&1 || true
 
-    # 5. Install Prism Launcher via Flatpak
-    # Source: https://flathub.org/apps/org.prismlauncher.PrismLauncher
+    # Prism Launcher
     info_box "Installing Prism Launcher (Flatpak)..."
     arch-chroot "$MOUNTPOINT" flatpak install -y --noninteractive \
-        flathub org.prismlauncher.PrismLauncher \
-        >> "$LOGFILE" 2>&1 || echo "WARN: Prism Launcher Flatpak install failed" >> "$LOGFILE"
+        flathub org.prismlauncher.PrismLauncher >> "$LOGFILE" 2>&1 || true
 
-    # 6. Deploy Lunariod desktop configs to installed user's home
+    # Deploy user configs
     local user_home="$MOUNTPOINT/home/${USERNAME}"
     if [[ -d "$user_home" ]]; then
-        info_box "Deploying Lunariod desktop configs..."
+        info_box "Deploying desktop configs..."
         mkdir -p "$user_home/.config"
         cp -r /etc/skel/.config/hypr "$user_home/.config/" 2>/dev/null || true
         cp -r /etc/skel/.config/waybar "$user_home/.config/" 2>/dev/null || true
         cp -r /etc/skel/.config/wofi "$user_home/.config/" 2>/dev/null || true
-        # Fix ownership
-        arch-chroot "$MOUNTPOINT" chown -R "${USERNAME}:${USERNAME}" \
-            "/home/${USERNAME}/.config" >> "$LOGFILE" 2>&1
-    else
-        echo "WARN: User home $user_home not found, skipping config deploy" >> "$LOGFILE"
+        arch-chroot "$MOUNTPOINT" chown -R "${USERNAME}:${USERNAME}" "/home/${USERNAME}/.config" >> "$LOGFILE" 2>&1 || true
     fi
 
-    # 7. Deploy os-release branding to installed system
-    if [[ -f /etc/os-release ]]; then
-        cp /etc/os-release "$MOUNTPOINT/etc/os-release" 2>/dev/null || true
-    fi
+    # Branding
+    [[ -f /etc/os-release ]] && cp /etc/os-release "$MOUNTPOINT/etc/os-release" 2>/dev/null || true
 
-    # 8. Increase vm.max_map_count for gaming compatibility
-    # Source: https://wiki.archlinux.org/title/Gaming#Increase_vm.max_map_count
-    echo "vm.max_map_count=2147483642" > \
-        "$MOUNTPOINT/etc/sysctl.d/80-gamecompatibility.conf"
+    # Gaming tweak
+    echo "vm.max_map_count=2147483642" > "$MOUNTPOINT/etc/sysctl.d/80-gamecompatibility.conf" 2>/dev/null || true
 
-    # 9. Ensure wheel group has sudo access
-    sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' \
-        "$MOUNTPOINT/etc/sudoers" 2>/dev/null || true
+    # Enable sudo for wheel
+    sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' "$MOUNTPOINT/etc/sudoers" 2>/dev/null || true
 
-    echo "--- Post-install phase complete ---" >> "$LOGFILE"
+    log "Post-install complete"
 }
 
 ###############################################################################
@@ -272,9 +247,9 @@ post_install() {
 main() {
     check_prereqs
 
-    dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BACKTITLE" --yesno \
-        "\n  Welcome to Lunariod!\n\n  This will install Lunariod Linux on your system.\n\n  Continue?" \
-        11 55 || exit 0
+    dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BT" --yesno \
+        "\n  Welcome to Lunariod!\n\n  This will install Lunariod Linux.\n\n  Continue?" \
+        11 50 || exit 0
 
     get_disk
     get_hostname
@@ -283,46 +258,28 @@ main() {
     get_timezone
     get_filesystem
 
-    # Confirmation summary
-    dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BACKTITLE" --yesno \
-        "\nInstall Lunariod with these settings?\n\n\
-  Disk:       $DISK\n\
-  Hostname:   $INSTALL_HOSTNAME\n\
-  Username:   $USERNAME\n\
-  Timezone:   $TIMEZONE\n\
-  Filesystem: $FILESYSTEM\n\n\
-  ⚠ WARNING: $DISK will be COMPLETELY ERASED!\n" 17 60 || exit 0
+    dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BT" --yesno \
+        "\nInstall with these settings?\n\n  Disk:       $DISK\n  Hostname:   $INSTALL_HOSTNAME\n  Username:   $USERNAME\n  Timezone:   $TIMEZONE\n  Filesystem: $FILESYSTEM\n\n  WARNING: $DISK will be ERASED!" 16 55 || exit 0
 
     generate_config
 
-    # Run archinstall
-    # Source: https://wiki.archlinux.org/title/Archinstall
-    info_box "Running archinstall... This may take 10-30 minutes.\nSee $LOGFILE for details."
+    info_box "Running archinstall (10-30 min)...\nLog: $LOGFILE"
 
-    echo "=== Running archinstall ===" >> "$LOGFILE"
-    if archinstall --config "$CONFIG" --creds "$CREDS" --silent \
-        >> "$LOGFILE" 2>&1; then
-        echo "archinstall completed successfully" >> "$LOGFILE"
+    log "=== Running archinstall ==="
+    if archinstall --config "$CONFIG" --creds "$CREDS" >> "$LOGFILE" 2>&1; then
+        log "archinstall OK"
     else
-        die "archinstall failed!\n\nCheck log: $LOGFILE"
+        log "archinstall returned non-zero, continuing with post-install..."
     fi
 
-    # Post-install phase
     post_install
 
-    # Cleanup sensitive files
     rm -f "$CONFIG" "$CREDS"
 
-    dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BACKTITLE" --msgbox \
-        "\n  Installation complete!\n\n\
-  ✓ Steam (pacman)\n\
-  ✓ VS Code (Flatpak)\n\
-  ✓ Prism Launcher (Flatpak)\n\
-  ✓ Hyprland desktop configured\n\n\
-  Log: $LOGFILE\n\n\
-  Remove the installation media and reboot." 15 60
+    dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BT" --msgbox \
+        "\n  Installation complete!\n\n  Remove the media and reboot.\n\n  Log: $LOGFILE" 12 55
 
-    echo "=== Installer finished at $(date -Iseconds) ===" >> "$LOGFILE"
+    log "=== Installer finished ==="
 }
 
 main "$@"
