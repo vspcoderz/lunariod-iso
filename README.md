@@ -2,6 +2,8 @@
 
 **Minimalist Arch Linux distribution for Intel hardware — Hyprland + Gaming + Coding**
 
+> **ℹ️ INFO:** This project is fully vibecoded and fully tested, but still — use it at your own risk.
+
 Lunariod is an opinionated, Arch-based ISO that ships a curated Hyprland (Wayland) desktop with a sky-blue accent theme, pre-configured PipeWire audio, and a gaming-ready stack. It installs through a branded TUI installer backed by `archinstall`.
 
 ## Features
