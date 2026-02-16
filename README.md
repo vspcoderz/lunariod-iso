@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="Lunariod Logo" width="280">
+</p>
+
 # Lunariod
 
 **Minimalist Arch Linux distribution for Intel hardware — Hyprland + Gaming + Coding**
