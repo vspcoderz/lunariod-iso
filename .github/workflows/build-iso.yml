@@ -40,13 +40,18 @@ jobs:
           pacman-key --init
           pacman-key --populate archlinux
 
-      - name: Setup Chaotic-AUR
+      - name: Setup EndeavourOS Repo
         run: |
-          pacman-key --recv-key 3056513887B78AEB --keyserver keyserver.ubuntu.com
-          pacman-key --lsign-key 3056513887B78AEB
-          pacman -U --noconfirm 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst'
-          pacman -U --noconfirm 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst'
-          echo -e '\n[chaotic-aur]\nInclude = /etc/pacman.d/chaotic-mirrorlist' >> /etc/pacman.conf
+          pacman-key --recv-keys 497AF50C92AD2384C56E1C7D9741E8AC
+          pacman-key --lsign-key 497AF50C92AD2384C56E1C7D9741E8AC
+          # Fetch latest keyring and mirrorlist versions dynamically
+          MIRROR_URL="https://mirror.moson.org/endeavouros/repo/endeavouros/x86_64/"
+          KEYRING_PKG=$(curl -sL $MIRROR_URL | grep -o 'endeavouros-keyring-[0-9a-z.-]\+\.pkg\.tar\.zst' | head -1)
+          MIRRORLIST_PKG=$(curl -sL $MIRROR_URL | grep -o 'endeavouros-mirrorlist-[0-9a-z.-]\+\.pkg\.tar\.zst' | head -1)
+          echo "Installing $KEYRING_PKG and $MIRRORLIST_PKG"
+          pacman -U --noconfirm "${MIRROR_URL}${KEYRING_PKG}"
+          pacman -U --noconfirm "${MIRROR_URL}${MIRRORLIST_PKG}"
+          echo -e '\n[endeavouros]\nSigLevel = PackageRequired\nInclude = /etc/pacman.d/endeavouros-mirrorlist' >> /etc/pacman.conf
 
       - name: Install archiso and grub
         run: pacman -Syu --noconfirm --needed archiso grub

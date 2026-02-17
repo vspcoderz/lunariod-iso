@@ -78,9 +78,11 @@ flatpak
 # === VirtualBox Guest ===
 virtualbox-guest-utils
 
-# === Chaotic-AUR Keyring ===
-chaotic-keyring
-chaotic-mirrorlist
+
+
+# === EndeavourOS Keyring ===
+endeavouros-keyring
+endeavouros-mirrorlist
 
 # === GUI Installer (Calamares) ===
 calamares
