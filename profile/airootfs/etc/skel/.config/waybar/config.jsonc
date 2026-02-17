@@ -4,7 +4,7 @@
     "height": 34,
     "modules-left": ["hyprland/workspaces"],
     "modules-center": ["clock"],
-    "modules-right": ["pulseaudio", "network", "cpu", "memory", "tray"],
+    "modules-right": ["custom/installer", "pulseaudio", "network", "cpu", "memory", "tray"],
 
     "hyprland/workspaces": {
         "format": "{icon}",
@@ -16,6 +16,12 @@
     "clock": {
         "format": "{:%a %b %d  %H:%M}",
         "tooltip-format": "{calendar}"
+    },
+    "custom/installer": {
+        "format": "  Install",
+        "tooltip": "Install Lunariod Linux",
+        "on-click": "pkexec calamares",
+        "interval": "once"
     },
     "pulseaudio": {
         "format": "♪ {volume}%",

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Install Lunariod
+Comment=Install Lunariod Linux to your disk
+GenericName=System Installer
+Exec=pkexec calamares
+Icon=lunariod
+Terminal=false
+Type=Application
+Categories=System;
+Keywords=installer;calamares;install;lunariod;

@@ -78,6 +78,18 @@ flatpak
 # === VirtualBox Guest ===
 virtualbox-guest-utils
 
+# === Chaotic-AUR Keyring ===
+chaotic-keyring
+chaotic-mirrorlist
+
+# === GUI Installer (Calamares) ===
+calamares
+boost-libs
+kpmcore
+libpwquality
+qt6-svg
+qt6-declarative
+
 # === Installer / Live Utilities ===
 dialog
 archinstall
@@ -88,6 +100,8 @@ btrfs-progs
 parted
 gptfdisk
 cryptsetup
+xorg-xwayland
+nemo
 
 # === Fonts ===
 ttf-jetbrains-mono-nerd

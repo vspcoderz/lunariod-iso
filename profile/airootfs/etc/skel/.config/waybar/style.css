@@ -36,6 +36,19 @@ window#waybar {
     color: #cbd5e1;                            /* slate-300 */
 }
 
+#custom-installer {
+    color: #0f172a;
+    background: #BAE6FD;
+    padding: 0 12px;
+    border-radius: 4px;
+    margin: 4px 6px;
+    font-weight: bold;
+}
+
+#custom-installer:hover {
+    background: #7dd3fc;
+}
+
 #tray {
     padding: 0 6px;
 }

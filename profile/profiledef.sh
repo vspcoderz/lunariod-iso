@@ -19,6 +19,9 @@ file_permissions=(
   ["/root"]="0:0:750"
   ["/root/.automated_script.sh"]="0:0:755"
   ["/root/.bash_profile"]="0:0:644"
+  ["/root/.zprofile"]="0:0:644"
   ["/usr/local/bin/lunariod-menu"]="0:0:755"
   ["/usr/local/bin/lunariod-install"]="0:0:755"
+  ["/usr/share/applications/lunariod-installer.desktop"]="0:0:644"
+  ["/usr/share/applications/lunariod-install-tui.desktop"]="0:0:644"
 )

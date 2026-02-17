@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Lunariod Install (Terminal)
+Comment=Install Lunariod Linux via TUI (terminal interface)
+Exec=foot -e sudo /usr/local/bin/lunariod-install
+Icon=utilities-terminal
+Terminal=false
+Type=Application
+Categories=System;
+Keywords=installer;terminal;tui;archinstall;
