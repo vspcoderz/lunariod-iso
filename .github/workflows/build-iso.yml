@@ -42,7 +42,7 @@ jobs:
 
       - name: Setup EndeavourOS Repo
         run: |
-          pacman-key --recv-keys 497AF50C92AD2384C56E1C7D9741E8AC
+          pacman-key --keyserver keyserver.ubuntu.com --recv-keys 497AF50C92AD2384C56E1C7D9741E8AC
           pacman-key --lsign-key 497AF50C92AD2384C56E1C7D9741E8AC
           # Fetch latest keyring and mirrorlist versions dynamically
           MIRROR_URL="https://mirror.moson.org/endeavouros/repo/endeavouros/x86_64/"
