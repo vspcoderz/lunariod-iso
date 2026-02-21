@@ -80,8 +80,8 @@ virtualbox-guest-utils
 
 # === Installer / Live Utilities ===
 dialog
-archinstall
 arch-install-scripts
+dbus
 dosfstools
 e2fsprogs
 btrfs-progs

@@ -1,0 +1,43 @@
+/* Lunariod Wofi Theme */
+window {
+    margin: 0;
+    border: 2px solid rgba(23, 147, 209, 0.6);
+    border-radius: 12px;
+    background-color: rgba(17, 17, 27, 0.92);
+    font-family: "JetBrainsMono Nerd Font", "Noto Sans", sans-serif;
+    font-size: 14px;
+}
+
+#input {
+    margin: 8px;
+    padding: 8px 12px;
+    border: none;
+    border-radius: 8px;
+    background-color: rgba(30, 30, 46, 0.8);
+    color: #cdd6f4;
+    font-size: 14px;
+}
+
+#inner-box {
+    margin: 4px 8px;
+}
+
+#outer-box {
+    margin: 0;
+    padding: 0;
+}
+
+#entry {
+    padding: 6px 10px;
+    border-radius: 6px;
+    color: #cdd6f4;
+}
+
+#entry:selected {
+    background-color: rgba(23, 147, 209, 0.35);
+    color: #ffffff;
+}
+
+#text {
+    margin: 0 8px;
+}

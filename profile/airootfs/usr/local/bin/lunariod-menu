@@ -3,6 +3,10 @@
 # Lunariod Live Environment — Main Menu
 set -euo pipefail
 
+# Ensure XDG_RUNTIME_DIR is set for Wayland/Hyprland
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+mkdir -p "$XDG_RUNTIME_DIR" 2>/dev/null || true
+
 CHOICE=$(dialog --clear --title " Welcome to Lunariod " \
   --backtitle "Lunariod Linux — Live Environment" \
   --menu "\nChoose an option:\n" 14 52 4 \
@@ -13,7 +17,7 @@ CHOICE=$(dialog --clear --title " Welcome to Lunariod " \
   2>&1 >/dev/tty) || true
 
 case "${CHOICE:-}" in
-  1) exec Hyprland --i-am-really-stupid ;;
+  1) exec dbus-run-session Hyprland --i-am-really-stupid ;;
   2) /usr/local/bin/lunariod-install ;;
   3) clear && exec bash ;;
   4) systemctl reboot ;;

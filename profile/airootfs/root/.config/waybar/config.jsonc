@@ -1,0 +1,38 @@
+{
+    "layer": "top",
+    "position": "top",
+    "height": 34,
+    "modules-left": ["hyprland/workspaces"],
+    "modules-center": ["clock"],
+    "modules-right": ["custom/installer", "pulseaudio", "network", "cpu", "memory", "tray"],
+
+    "hyprland/workspaces": {
+        "format": "{icon}",
+        "format-icons": {
+            "active": "●",
+            "default": "○"
+        }
+    },
+    "clock": {
+        "format": "{:%a %b %d  %H:%M}",
+        "tooltip-format": "{calendar}"
+    },
+    "custom/installer": {
+        "format": "  Install",
+        "tooltip": "Install Lunariod Linux",
+        "on-click": "foot -e sudo /usr/local/bin/lunariod-install",
+        "interval": "once"
+    },
+    "pulseaudio": {
+        "format": "♪ {volume}%",
+        "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
+    },
+    "network": {
+        "format-wifi": "  {signalStrength}%",
+        "format-ethernet": "  {ipaddr}",
+        "format-disconnected": "⚠ Off"
+    },
+    "cpu": { "format": " {usage}%" },
+    "memory": { "format": " {percentage}%" },
+    "tray": { "spacing": 8 }
+}

@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
 # /usr/local/bin/lunariod-install
-# Lunariod TUI Installer — dialog front-end → archinstall back-end
+# Lunariod TUI Installer — dialog front-end → pacstrap back-end
+# Replaces broken archinstall approach with manual partitioning + pacstrap
 set -uo pipefail
 
 ###############################################################################
 # Constants
 ###############################################################################
 LOGFILE="/tmp/lunariod-install.log"
-CONFIG="/tmp/lunariod-config.json"
-CREDS="/tmp/lunariod-creds.json"
 DIALOG_TITLE=" Lunariod Installer "
 DIALOG_BT="Lunariod Linux — Installation"
-MOUNTPOINT="/mnt/archinstall"
+MOUNTPOINT="/mnt"
 
 : > "$LOGFILE"
 log() { echo "[$(date +%H:%M:%S)] $*" >> "$LOGFILE"; }
@@ -23,6 +22,7 @@ log "=== Lunariod installer started ==="
 die() {
     log "FATAL: $1"
     dialog --title "Error" --backtitle "$DIALOG_BT" --msgbox "$1" 8 60 2>/dev/null
+    cleanup_mounts
     exit 1
 }
 
@@ -30,9 +30,18 @@ info_box() {
     dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BT" --infobox "$1" 5 60
 }
 
+gauge_box() {
+    dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BT" --gauge "$1" 7 60 "$2"
+}
+
+cleanup_mounts() {
+    umount -R "$MOUNTPOINT" 2>/dev/null || true
+    swapoff -a 2>/dev/null || true
+}
+
 check_prereqs() {
     local missing=()
-    for cmd in dialog archinstall lsblk; do
+    for cmd in dialog pacstrap genfstab arch-chroot lsblk sgdisk mkfs.ext4; do
         command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd")
     done
     [[ ${#missing[@]} -eq 0 ]] || die "Missing commands: ${missing[*]}"
@@ -57,6 +66,13 @@ check_prereqs() {
         sleep 2
     done
     die "No network. Connect first:\n  nmtui  or\n  nmcli device wifi connect SSID password PASS"
+}
+
+###############################################################################
+# Detect boot mode (UEFI vs BIOS)
+###############################################################################
+is_uefi() {
+    [[ -d /sys/firmware/efi/efivars ]]
 }
 
 ###############################################################################
@@ -125,118 +141,267 @@ get_filesystem() {
 }
 
 ###############################################################################
-# Config Generation — matches archinstall config schema
+# Partitioning
 ###############################################################################
-generate_config() {
-    cat > "$CONFIG" << JSONEOF
-{
-    "additional-repositories": ["multilib"],
-    "bootloader": "Systemd-boot",
-    "hostname": "${INSTALL_HOSTNAME}",
-    "kernels": ["linux"],
-    "locale_config": {
-        "kb_layout": "us",
-        "sys_enc": "UTF-8",
-        "sys_lang": "en_US"
-    },
-    "mirror_config": {
-        "mirror_regions": {
-            "Worldwide": []
-        }
-    },
-    "disk_config": {
-        "config_type": "default_layout",
-        "device_modifications": [
-            {
-                "device": "${DISK}",
-                "wipe": true,
-                "filesystem_type": "${FILESYSTEM}"
-            }
-        ]
-    },
-    "network_config": {
-        "type": "nm"
-    },
-    "packages": [
-        "mesa", "lib32-mesa",
-        "vulkan-intel", "lib32-vulkan-intel",
-        "vulkan-icd-loader", "lib32-vulkan-icd-loader",
-        "pipewire", "pipewire-alsa", "pipewire-pulse", "pipewire-jack",
-        "wireplumber",
-        "hyprland", "xdg-desktop-portal-hyprland", "xdg-desktop-portal",
-        "waybar", "wofi", "mako", "hyprpaper", "foot",
-        "polkit-gnome", "grim", "slurp", "wl-clipboard",
-        "steam", "gamescope", "gamemode", "lib32-gamemode",
-        "mangohud", "lib32-mangohud",
-        "base-devel", "git", "python", "nodejs", "npm", "firefox",
-        "flatpak",
-        "virtualbox-guest-utils",
-        "networkmanager", "iwd",
-        "ttf-jetbrains-mono-nerd", "noto-fonts", "papirus-icon-theme",
-        "sudo", "nano", "vim"
-    ],
-    "profile_config": {
-        "profile": {
-            "main": "Minimal"
-        }
-    },
-    "timezone": "${TIMEZONE}"
-}
-JSONEOF
+partition_disk() {
+    info_box "Partitioning $DISK..."
+    log "Partitioning $DISK (UEFI=$(is_uefi && echo yes || echo no))"
 
-    cat > "$CREDS" << JSONEOF
-{
-    "!root-password": null,
-    "!users": [
-        {
-            "username": "${USERNAME}",
-            "!password": "${PASSWORD}",
-            "sudo": true
-        }
-    ]
-}
-JSONEOF
+    # Wipe existing partition table
+    sgdisk --zap-all "$DISK" >> "$LOGFILE" 2>&1
 
-    chmod 600 "$CONFIG" "$CREDS"
-    log "Config written: $CONFIG"
-    log "Creds written: $CREDS"
-}
+    if is_uefi; then
+        # GPT: 512M EFI + rest as root
+        sgdisk -n 1:0:+512M -t 1:EF00 -c 1:"EFI" "$DISK" >> "$LOGFILE" 2>&1
+        sgdisk -n 2:0:0 -t 2:8300 -c 2:"Root" "$DISK" >> "$LOGFILE" 2>&1
 
-###############################################################################
-# Post-Install
-###############################################################################
-post_install() {
-    # archinstall mounts to /mnt/archinstall by default
-    if [[ ! -d "$MOUNTPOINT" ]]; then
-        MOUNTPOINT="/mnt"
+        # Determine partition naming (nvme uses p1, sda uses 1)
+        if [[ "$DISK" == *nvme* ]] || [[ "$DISK" == *mmcblk* ]]; then
+            EFI_PART="${DISK}p1"
+            ROOT_PART="${DISK}p2"
+        else
+            EFI_PART="${DISK}1"
+            ROOT_PART="${DISK}2"
+        fi
+    else
+        # MBR/BIOS: just one big root partition
+        sgdisk -n 1:0:0 -t 1:8300 -c 1:"Root" "$DISK" >> "$LOGFILE" 2>&1
+
+        if [[ "$DISK" == *nvme* ]] || [[ "$DISK" == *mmcblk* ]]; then
+            ROOT_PART="${DISK}p1"
+        else
+            ROOT_PART="${DISK}1"
+        fi
+        EFI_PART=""
     fi
-    log "Post-install mountpoint: $MOUNTPOINT"
 
-    info_box "Running post-install setup..."
+    # Wait for kernel to recognize partitions
+    partprobe "$DISK" 2>/dev/null || true
+    sleep 2
+
+    log "Partitions: EFI=$EFI_PART ROOT=$ROOT_PART"
+}
+
+###############################################################################
+# Formatting
+###############################################################################
+format_partitions() {
+    info_box "Formatting partitions..."
+
+    # Format EFI partition if UEFI
+    if [[ -n "${EFI_PART:-}" ]]; then
+        mkfs.fat -F32 "$EFI_PART" >> "$LOGFILE" 2>&1 || die "Failed to format EFI partition"
+        log "Formatted EFI: $EFI_PART (FAT32)"
+    fi
+
+    # Format root partition
+    case "$FILESYSTEM" in
+        ext4)
+            mkfs.ext4 -F "$ROOT_PART" >> "$LOGFILE" 2>&1 || die "Failed to format root partition"
+            ;;
+        btrfs)
+            mkfs.btrfs -f "$ROOT_PART" >> "$LOGFILE" 2>&1 || die "Failed to format root partition"
+            ;;
+    esac
+    log "Formatted root: $ROOT_PART ($FILESYSTEM)"
+}
+
+###############################################################################
+# Mounting
+###############################################################################
+mount_partitions() {
+    info_box "Mounting partitions..."
+
+    # Mount root
+    mount "$ROOT_PART" "$MOUNTPOINT" >> "$LOGFILE" 2>&1 || die "Failed to mount root partition"
+
+    # Create and mount EFI if UEFI
+    if [[ -n "${EFI_PART:-}" ]]; then
+        mkdir -p "$MOUNTPOINT/boot/efi"
+        mount "$EFI_PART" "$MOUNTPOINT/boot/efi" >> "$LOGFILE" 2>&1 || die "Failed to mount EFI partition"
+    fi
+
+    log "Mounted: root=$MOUNTPOINT, EFI=$MOUNTPOINT/boot/efi"
+}
+
+###############################################################################
+# Package Installation via pacstrap
+###############################################################################
+install_packages() {
+    info_box "Installing base system (this takes 10-30 min)...\nLog: $LOGFILE"
+    log "=== Running pacstrap ==="
+
+    local packages=(
+        # Base system
+        base linux linux-firmware intel-ucode sudo
+
+        # Bootloader
+        grub efibootmgr
+
+        # Intel Graphics + Vulkan (+ 32-bit for Steam)
+        mesa lib32-mesa
+        vulkan-intel lib32-vulkan-intel
+        vulkan-icd-loader lib32-vulkan-icd-loader
+
+        # Audio (PipeWire)
+        pipewire pipewire-alsa pipewire-pulse pipewire-jack
+        wireplumber
+
+        # Networking
+        networkmanager iwd
+
+        # Hyprland / Wayland
+        hyprland xdg-desktop-portal-hyprland xdg-desktop-portal
+        waybar wofi mako hyprpaper foot
+        polkit-gnome grim slurp wl-clipboard xdg-utils
+        xorg-xwayland
+
+        # Gaming
+        steam gamescope gamemode lib32-gamemode
+        mangohud lib32-mangohud
+
+        # Coding + Browser
+        base-devel git python nodejs npm firefox
+
+        # Flatpak
+        flatpak
+
+        # VirtualBox Guest
+        virtualbox-guest-utils
+
+        # Fonts
+        ttf-jetbrains-mono-nerd noto-fonts
+
+        # Icons
+        papirus-icon-theme
+
+        # Shell + Utilities
+        zsh nano vim less
+
+        # File manager
+        nemo
+    )
+
+    pacstrap -K "$MOUNTPOINT" "${packages[@]}" >> "$LOGFILE" 2>&1
+    if [[ $? -ne 0 ]]; then
+        die "pacstrap failed. Check $LOGFILE for details."
+    fi
+
+    log "pacstrap completed successfully"
+}
+
+###############################################################################
+# Generate fstab
+###############################################################################
+generate_fstab() {
+    info_box "Generating fstab..."
+    genfstab -U "$MOUNTPOINT" >> "$MOUNTPOINT/etc/fstab"
+    log "fstab generated"
+}
+
+###############################################################################
+# System Configuration (inside chroot)
+###############################################################################
+configure_system() {
+    info_box "Configuring system..."
+    log "=== Configuring system in chroot ==="
+
+    # Timezone
+    arch-chroot "$MOUNTPOINT" ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime >> "$LOGFILE" 2>&1
+    arch-chroot "$MOUNTPOINT" hwclock --systohc >> "$LOGFILE" 2>&1
+    log "Timezone set: $TIMEZONE"
+
+    # Locale
+    echo "en_US.UTF-8 UTF-8" > "$MOUNTPOINT/etc/locale.gen"
+    arch-chroot "$MOUNTPOINT" locale-gen >> "$LOGFILE" 2>&1
+    echo "LANG=en_US.UTF-8" > "$MOUNTPOINT/etc/locale.conf"
+    log "Locale configured"
+
+    # Hostname
+    echo "$INSTALL_HOSTNAME" > "$MOUNTPOINT/etc/hostname"
+    cat > "$MOUNTPOINT/etc/hosts" <<EOF
+127.0.0.1   localhost
+::1         localhost
+127.0.1.1   ${INSTALL_HOSTNAME}.localdomain ${INSTALL_HOSTNAME}
+EOF
+    log "Hostname set: $INSTALL_HOSTNAME"
+
+    # Enable multilib
+    sed -i '/^#\[multilib\]/{s/^#//;n;s/^#//}' "$MOUNTPOINT/etc/pacman.conf" 2>/dev/null || true
+    log "Multilib enabled"
+
+    # Create user
+    arch-chroot "$MOUNTPOINT" useradd -m -G wheel,video,audio,input -s /bin/bash "$USERNAME" >> "$LOGFILE" 2>&1
+    echo "${USERNAME}:${PASSWORD}" | arch-chroot "$MOUNTPOINT" chpasswd >> "$LOGFILE" 2>&1
+    log "User created: $USERNAME"
+
+    # Enable sudo for wheel
+    sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' "$MOUNTPOINT/etc/sudoers" 2>/dev/null || true
+    log "Sudo enabled for wheel group"
+
+    # Bootloader
+    install_bootloader
 
     # Enable services
+    info_box "Enabling services..."
     arch-chroot "$MOUNTPOINT" systemctl enable NetworkManager.service >> "$LOGFILE" 2>&1 || true
     arch-chroot "$MOUNTPOINT" systemctl enable vboxservice.service >> "$LOGFILE" 2>&1 || true
+    log "Services enabled"
 
-    # Enable multilib in installed system
-    sed -i '/^#\[multilib\]/{s/^#//;n;s/^#//}' "$MOUNTPOINT/etc/pacman.conf" 2>/dev/null || true
+    # Gaming tweak — increase vm.max_map_count for Steam/Proton
+    echo "vm.max_map_count=2147483642" > "$MOUNTPOINT/etc/sysctl.d/80-gamecompatibility.conf" 2>/dev/null || true
+    log "Gaming tweaks applied"
+}
+
+###############################################################################
+# Bootloader Installation
+###############################################################################
+install_bootloader() {
+    info_box "Installing bootloader..."
+    log "Installing GRUB bootloader"
+
+    if is_uefi; then
+        arch-chroot "$MOUNTPOINT" grub-install --target=x86_64-efi \
+            --efi-directory=/boot/efi --bootloader-id=Lunariod >> "$LOGFILE" 2>&1 \
+            || die "GRUB install failed (UEFI)"
+    else
+        arch-chroot "$MOUNTPOINT" grub-install --target=i386-pc "$DISK" >> "$LOGFILE" 2>&1 \
+            || die "GRUB install failed (BIOS)"
+    fi
+
+    # Customize GRUB
+    sed -i 's/GRUB_DISTRIBUTOR="Arch"/GRUB_DISTRIBUTOR="Lunariod"/' \
+        "$MOUNTPOINT/etc/default/grub" 2>/dev/null || true
+
+    arch-chroot "$MOUNTPOINT" grub-mkconfig -o /boot/grub/grub.cfg >> "$LOGFILE" 2>&1 \
+        || die "grub-mkconfig failed"
+
+    log "GRUB installed and configured"
+}
+
+###############################################################################
+# Post-Install (Flatpak, configs, branding)
+###############################################################################
+post_install() {
+    info_box "Running post-install setup..."
+    log "=== Post-install ==="
 
     # Flatpak + Flathub
     info_box "Setting up Flatpak + Flathub..."
     arch-chroot "$MOUNTPOINT" flatpak remote-add --if-not-exists \
         flathub https://dl.flathub.org/repo/flathub.flatpakrepo >> "$LOGFILE" 2>&1 || true
 
-    # VS Code
+    # VS Code (Flatpak)
     info_box "Installing VS Code (Flatpak)..."
     arch-chroot "$MOUNTPOINT" flatpak install -y --noninteractive \
         flathub com.visualstudio.code >> "$LOGFILE" 2>&1 || true
 
-    # Prism Launcher
+    # Prism Launcher (Flatpak)
     info_box "Installing Prism Launcher (Flatpak)..."
     arch-chroot "$MOUNTPOINT" flatpak install -y --noninteractive \
         flathub org.prismlauncher.PrismLauncher >> "$LOGFILE" 2>&1 || true
 
-    # Deploy user configs
+    # Deploy user desktop configs from skel
     local user_home="$MOUNTPOINT/home/${USERNAME}"
     if [[ -d "$user_home" ]]; then
         info_box "Deploying desktop configs..."
@@ -244,17 +409,24 @@ post_install() {
         cp -r /etc/skel/.config/hypr "$user_home/.config/" 2>/dev/null || true
         cp -r /etc/skel/.config/waybar "$user_home/.config/" 2>/dev/null || true
         cp -r /etc/skel/.config/wofi "$user_home/.config/" 2>/dev/null || true
+        cp -r /etc/skel/.config/foot "$user_home/.config/" 2>/dev/null || true
         arch-chroot "$MOUNTPOINT" chown -R "${USERNAME}:${USERNAME}" "/home/${USERNAME}/.config" >> "$LOGFILE" 2>&1 || true
     fi
 
-    # Branding
+    # Branding — copy os-release
     [[ -f /etc/os-release ]] && cp /etc/os-release "$MOUNTPOINT/etc/os-release" 2>/dev/null || true
 
-    # Gaming tweak
-    echo "vm.max_map_count=2147483642" > "$MOUNTPOINT/etc/sysctl.d/80-gamecompatibility.conf" 2>/dev/null || true
+    # Create Hyprland autostart for the user (login shell launches Hyprland)
+    cat > "$user_home/.bash_profile" <<'EOF'
+# Lunariod — Auto-launch Hyprland on tty1
+if [[ -z "$DISPLAY" ]] && [[ -z "$WAYLAND_DISPLAY" ]] && [[ $(tty) == /dev/tty1 ]]; then
+    exec Hyprland
+fi
 
-    # Enable sudo for wheel
-    sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' "$MOUNTPOINT/etc/sudoers" 2>/dev/null || true
+# Source bashrc
+[[ -f ~/.bashrc ]] && . ~/.bashrc
+EOF
+    arch-chroot "$MOUNTPOINT" chown "${USERNAME}:${USERNAME}" "/home/${USERNAME}/.bash_profile" >> "$LOGFILE" 2>&1 || true
 
     log "Post-install complete"
 }
@@ -279,20 +451,17 @@ main() {
     dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BT" --yesno \
         "\nInstall with these settings?\n\n  Disk:       $DISK\n  Hostname:   $INSTALL_HOSTNAME\n  Username:   $USERNAME\n  Timezone:   $TIMEZONE\n  Filesystem: $FILESYSTEM\n\n  WARNING: $DISK will be ERASED!" 16 55 || exit 0
 
-    generate_config
-
-    info_box "Running archinstall (10-30 min)...\nLog: $LOGFILE"
-
-    log "=== Running archinstall ==="
-    if archinstall --config "$CONFIG" --creds "$CREDS" >> "$LOGFILE" 2>&1; then
-        log "archinstall OK"
-    else
-        log "archinstall returned non-zero, continuing with post-install..."
-    fi
-
+    # === Actual Installation ===
+    partition_disk
+    format_partitions
+    mount_partitions
+    install_packages
+    generate_fstab
+    configure_system
     post_install
 
-    rm -f "$CONFIG" "$CREDS"
+    # Cleanup
+    cleanup_mounts
 
     dialog --title "$DIALOG_TITLE" --backtitle "$DIALOG_BT" --msgbox \
         "\n  Installation complete!\n\n  Remove the media and reboot.\n\n  Log: $LOGFILE" 12 55

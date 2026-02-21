@@ -23,4 +23,10 @@ file_permissions=(
   ["/usr/local/bin/lunariod-menu"]="0:0:755"
   ["/usr/local/bin/lunariod-install"]="0:0:755"
   ["/usr/share/applications/lunariod-install-tui.desktop"]="0:0:644"
+  ["/etc/skel/.config/hypr/hyprland.conf"]="0:0:644"
+  ["/etc/skel/.config/waybar/config.jsonc"]="0:0:644"
+  ["/etc/skel/.config/waybar/style.css"]="0:0:644"
+  ["/etc/skel/.config/wofi/config"]="0:0:644"
+  ["/etc/skel/.config/wofi/style.css"]="0:0:644"
+  ["/etc/skel/.config/foot/foot.ini"]="0:0:644"
 )
