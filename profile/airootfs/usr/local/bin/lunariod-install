@@ -37,9 +37,26 @@ check_prereqs() {
     done
     [[ ${#missing[@]} -eq 0 ]] || die "Missing commands: ${missing[*]}"
     [[ $(id -u) -eq 0 ]] || die "Installer must be run as root."
-    if ! ping -c1 -W3 archlinux.org >/dev/null 2>&1; then
-        die "No network. Connect first:\n  nmtui  or\n  nmcli device wifi connect SSID password PASS"
+
+    # Ensure NetworkManager is running
+    if ! systemctl is-active --quiet NetworkManager 2>/dev/null; then
+        info_box "Starting NetworkManager..."
+        systemctl start NetworkManager 2>>"$LOGFILE" || true
+        sleep 3
     fi
+
+    # Wait for network (up to 15 seconds)
+    info_box "Checking network connectivity..."
+    local tries=0
+    while [[ $tries -lt 5 ]]; do
+        if ping -c1 -W3 archlinux.org >/dev/null 2>&1; then
+            log "Network OK"
+            return 0
+        fi
+        tries=$((tries + 1))
+        sleep 2
+    done
+    die "No network. Connect first:\n  nmtui  or\n  nmcli device wifi connect SSID password PASS"
 }
 
 ###############################################################################

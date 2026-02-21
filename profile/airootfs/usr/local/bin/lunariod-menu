@@ -13,7 +13,7 @@ CHOICE=$(dialog --clear --title " Welcome to Lunariod " \
   2>&1 >/dev/tty) || true
 
 case "${CHOICE:-}" in
-  1) exec Hyprland ;;
+  1) exec Hyprland --i-am-really-stupid ;;
   2) /usr/local/bin/lunariod-install ;;
   3) clear && exec bash ;;
   4) systemctl reboot ;;
