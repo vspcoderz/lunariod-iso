@@ -78,20 +78,6 @@ flatpak
 # === VirtualBox Guest ===
 virtualbox-guest-utils
 
-
-
-# === EndeavourOS Keyring ===
-endeavouros-keyring
-endeavouros-mirrorlist
-
-# === GUI Installer (Calamares) ===
-calamares
-boost-libs
-kpmcore
-libpwquality
-qt6-svg
-qt6-declarative
-
 # === Installer / Live Utilities ===
 dialog
 archinstall

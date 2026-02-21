@@ -22,6 +22,5 @@ file_permissions=(
   ["/root/.zprofile"]="0:0:644"
   ["/usr/local/bin/lunariod-menu"]="0:0:755"
   ["/usr/local/bin/lunariod-install"]="0:0:755"
-  ["/usr/share/applications/lunariod-installer.desktop"]="0:0:644"
   ["/usr/share/applications/lunariod-install-tui.desktop"]="0:0:644"
 )

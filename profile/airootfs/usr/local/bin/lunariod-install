@@ -132,7 +132,8 @@ generate_config() {
         "device_modifications": [
             {
                 "device": "${DISK}",
-                "wipe": true
+                "wipe": true,
+                "filesystem_type": "${FILESYSTEM}"
             }
         ]
     },
